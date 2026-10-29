@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { generateJewelryImage } from '../../services/puterAI';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://jewelora-backend-rithika.vercel.app/api';
 
 const jewelryTypes = [
   'Ring',
