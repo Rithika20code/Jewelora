@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
 
-// Load environment variables
+// Load local environment variables during local development.
 dotenv.config();
 
 // Import routes
@@ -12,14 +12,55 @@ const designRoutes = require('./routes/designRoutes');
 const priceRoutes = require('./routes/priceRoutes');
 const customizationRoutes = require('./routes/customizationRoutes');
 const authRoutes = require('./routes/authRoutes');
+
 const app = express();
-const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
 
 app.use(express.json({ limit: '12mb' }));
 app.use(express.urlencoded({ extended: true, limit: '12mb' }));
+
+// MongoDB connection management.
+// Vercel can reuse the connection across function invocations.
+let mongoConnectionPromise = null;
+
+async function connectToDatabase() {
+  if (mongoose.connection.readyState === 1) {
+    return;
+  }
+
+  if (!process.env.MONGODB_URI) {
+    throw new Error('MONGODB_URI environment variable is missing.');
+  }
+
+  if (!mongoConnectionPromise) {
+    mongoConnectionPromise = mongoose
+      .connect(process.env.MONGODB_URI)
+      .catch((error) => {
+        mongoConnectionPromise = null;
+        throw error;
+      });
+  }
+
+  await mongoConnectionPromise;
+}
+
+// Ensure MongoDB is connected before API requests execute.
+// The root health endpoint remains available for deployment testing.
+app.use('/api', async (req, res, next) => {
+  try {
+    await connectToDatabase();
+    next();
+  } catch (error) {
+    console.error('MongoDB connection failed:', error.message);
+
+    res.status(503).json({
+      success: false,
+      message: 'Database connection failed. Please try again later.',
+    });
+  }
+});
 
 // Health check
 app.get('/', (req, res) => {
@@ -52,27 +93,10 @@ app.use((err, req, res, next) => {
     message:
       err.status === 413
         ? 'Request is too large. Please use a smaller image.'
-        : err.message || 'Internal server error.',
+        : 'An internal server error occurred.',
   });
 });
 
-// Connect to MongoDB and start server
-async function startServer() {
-  try {
-    const mongoUri =
-      process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/jewelora';
-
-    await mongoose.connect(mongoUri);
-
-    console.log(`MongoDB connected: ${mongoose.connection.host}`);
-
-    app.listen(PORT, () => {
-      console.log(`Jewelora backend running on http://localhost:${PORT}`);
-    });
-  } catch (error) {
-    console.error('Failed to start Jewelora backend:', error.message);
-    process.exit(1);
-  }
-}
-
-startServer();
+// Export the Express app for Vercel.
+// Do not call app.listen() in this deployment entry point.
+module.exports = app;
